@@ -26,3 +26,16 @@ To run armcom2.py, you will need:
 * Libtcod 1.6.4	http://bitbucket.org/libtcod/libtcod
 * XPLoader http://github.com/RCIX/XPLoader
 * PySDL2 https://github.com/marcusva/py-sdl2
+
+
+Linux fork by Brian Weisberg
+
+brianweis999@gmail.com
+
+You must run sudo apt install build-essential python3-dev python3-pip python3-numpy libsdl2-dev libffi-dev libomp5
+
+then 
+
+python3 -m pip install --user tcod
+
+for libtcodpy to work

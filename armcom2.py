@@ -36,12 +36,9 @@
 
 ##### Libraries #####
 import os, sys						# OS-related stuff
-
-if os.name == 'posix':					# if linux - load system libtcodpy
-	import libtcodpy_local as libtcod		
-else:
-	import libtcodpy as libtcod			# The Doryen Library
-	os.environ['PYSDL2_DLL_PATH'] = os.getcwd() + '/lib'.replace('/', os.sep)	# set sdl2 dll path
+		
+import libtcodpy as libtcod			# The Doryen Library
+os.environ['PYSDL2_DLL_PATH'] = os.getcwd() + '/lib'.replace('/', os.sep)	# set sdl2 dll path
 	
 from configparser import ConfigParser			# saving and loading configuration settings
 from random import choice, shuffle, sample		# for the illusion of randomness
@@ -59,9 +56,9 @@ import sdl2.sdlmixer as mixer				# sound effects
 #                                        Constants                                       #
 ##########################################################################################
 
-DEBUG = True						# debug flag - set to False in all distribution versions
+DEBUG = False						# debug flag - set to False in all distribution versions
 NAME = 'Armoured Commander II'				# game name
-VERSION = '0.5.0'					# game version
+VERSION = '0.4.0'					# game version
 DATAPATH = 'data/'.replace('/', os.sep)			# path to data files
 SOUNDPATH = 'sounds/'.replace('/', os.sep)		# path to sound samples
 CAMPAIGNPATH = 'campaigns/'.replace('/', os.sep)	# path to campaign files
@@ -581,7 +578,8 @@ class Campaign:
 			del campaign_data
 		
 		# sort campaigns by start date
-		campaign_list = sorted(campaign_list, key = lambda x : (x['start_date']))
+		campaign_list = sorted(campaign_list, key = lambda x : (x['start_date']['year'],
+			x['start_date']['month'], x['start_date']['day']))
 		
 		# select first campaign by default
 		selected_campaign = campaign_list[0]
@@ -761,8 +759,9 @@ class Campaign:
 		libtcod.console_set_default_foreground(con, libtcod.white)
 		
 		# current date, time, and location
-		libtcod.console_print_ex(con, 45, 4, libtcod.BKGND_NONE, libtcod.CENTER, GetDateText(campaign.today['date']))
-		libtcod.console_print_ex(con, 45, 5, libtcod.BKGND_NONE, libtcod.CENTER, campaign.today['day_start'])
+		libtcod.console_print_ex(con, 45, 4, libtcod.BKGND_NONE, libtcod.CENTER, GetDateText(campaign.today))
+		text = campaign.today['start_hour'].zfill(2) + ':' + campaign.today['start_minute'].zfill(2)
+		libtcod.console_print_ex(con, 45, 5, libtcod.BKGND_NONE, libtcod.CENTER, text)
 		text = campaign.today['location']
 		libtcod.console_print_ex(con, 45, 6, libtcod.BKGND_NONE, libtcod.CENTER, text)
 		
@@ -817,7 +816,7 @@ class Campaign:
 		# FUTURE: weather forecast
 		
 		# end of day
-		text = 'End of Day: ' + campaign.today['day_end']
+		text = 'End of Day: ' + campaign.today['end_hour'].zfill(2) + ':' + campaign.today['end_minute'].zfill(2)
 		libtcod.console_print_ex(con, 45, 49, libtcod.BKGND_NONE, libtcod.CENTER, text)
 		
 		libtcod.console_blit(con, 0, 0, 0, 0, 0, 0, 0)
@@ -875,15 +874,13 @@ class CampaignDay:
 		
 		# current hour, and minute: set initial time from campaign info
 		self.day_clock = {}
-		time_str = campaign.today['day_start'].split(':')
-		self.day_clock['hour'] = int(time_str[0])
-		self.day_clock['minute'] = int(time_str[1])
+		self.day_clock['hour'] = int(campaign.today['start_hour'])
+		self.day_clock['minute'] = int(campaign.today['start_minute'])
 		
 		# end of day
 		self.end_of_day = {}
-		time_str = campaign.today['day_end'].split(':')
-		self.end_of_day['hour'] = int(time_str[0])
-		self.end_of_day['minute'] = int(time_str[1])
+		self.end_of_day['hour'] = int(campaign.today['end_hour'])
+		self.end_of_day['minute'] = int(campaign.today['end_minute'])
 		
 		# combat day length in minutes
 		hours = self.end_of_day['hour'] - self.day_clock['hour']
@@ -936,21 +933,6 @@ class CampaignDay:
 		# set up player
 		self.player_unit_location = (-2, 8)		# set initial player unit location
 		self.map_hexes[(-2, 8)].controlled_by = 0	# set player location to player control
-		
-		# set up hex objectives
-		# TEMP - assumes advance day mission
-		objective_dict = {
-			'objective_type' : 'Capture',
-			'vp_reward' : 5,
-			'time_limit' : None
-			}
-		self.map_hexes[(-2, 6)].SetObjective(objective_dict)
-		self.map_hexes[(1, 2)].SetObjective(objective_dict)
-		
-		# start on calendar menu layer
-		self.calendar_menu = True
-		self.active_calendar_menu = 0
-		
 	
 	
 	# generate a new random set of initial weather conditions, should only be called when day is created
@@ -2037,16 +2019,6 @@ class CampaignDay:
 				for (xm,ym) in CD_HEX_EDGE_CELLS[direction]:
 					libtcod.console_put_char_ex(cd_control_con, x+xm,
 						y+ym, chr(249), libtcod.red, libtcod.black)
-		
-		# highlight objective hexes
-		for (hx, hy) in CAMPAIGN_DAY_HEXES:
-			if self.map_hexes[(hx,hy)].objective is None: continue
-			
-			for direction in range(6):
-				(x,y) = self.PlotCDHex(hx, hy)
-				for (xm,ym) in CD_HEX_EDGE_CELLS[direction]:
-					libtcod.console_put_char_ex(cd_control_con, x+xm,
-						y+ym, chr(250), ACTION_KEY_COL, libtcod.black)
 	
 	
 	# generate/update the GUI console
@@ -2340,12 +2312,6 @@ class CampaignDay:
 		if cd_hex.arty_support:
 			libtcod.console_print(cd_hex_info_con, 0, 5, 'Arty Support inbound')
 		libtcod.console_set_default_foreground(cd_hex_info_con, libtcod.light_grey)
-		
-		# objective
-		if cd_hex.objective is not None:
-			libtcod.console_set_default_foreground(cd_hex_info_con, ACTION_KEY_COL)
-			libtcod.console_print(cd_hex_info_con, 0, 6, 'Objective: ' + cd_hex.objective['objective_type'])
-			libtcod.console_print(cd_hex_info_con, 0, 7, 'VP: ' + str(cd_hex.objective['vp_reward']))
 		
 		# roads
 		if len(cd_hex.dirt_roads) > 0:
@@ -2721,7 +2687,7 @@ class CDMapHex:
 		self.air_support = False	# player has air support called in
 		self.arty_support = False	# " arty "
 		
-		self.objective = None		# player objective for this zone
+		self.objective_type = None	# player objective for this zone
 		
 		# set enemy strength level
 		self.enemy_strength = libtcod.random_get_int(0, 1, 5) + libtcod.random_get_int(0, 0, 5)
@@ -2738,11 +2704,6 @@ class CDMapHex:
 				self.terrain_type = terrain_type
 				return
 			roll -= odds
-	
-	
-	# set up a new objective in this CD hex
-	def SetObjective(self, objective_dict):
-		self.objective = objective_dict
 	
 	
 	# set control of this hex by the given player
@@ -8167,11 +8128,9 @@ def NewConsole(x, y, bg, fg, key_colour=False):
 
 
 # return a text description of a given calendar date
-def GetDateText(text):
-	date_list = text.split('.')
-	
-	return (MONTH_NAMES[int(date_list[1].lstrip('0'))] + ' ' + str(date_list[2].lstrip('0')) + 
-		', ' + date_list[0])
+def GetDateText(dictionary):
+	return (MONTH_NAMES[int(dictionary['month'])] + ' ' + str(dictionary['day']) + 
+		', ' + str(dictionary['year']))
 
 
 # display date, time, and phase information to a console
@@ -8182,7 +8141,7 @@ def DisplayTimeInfo(console):
 	
 	if campaign is None: return
 	
-	libtcod.console_print_ex(console, 10, 0, libtcod.BKGND_NONE, libtcod.CENTER, GetDateText(campaign.today['date']))
+	libtcod.console_print_ex(console, 10, 0, libtcod.BKGND_NONE, libtcod.CENTER, GetDateText(campaign.today))
 	
 	if campaign_day is None: return
 	
@@ -8190,9 +8149,8 @@ def DisplayTimeInfo(console):
 	libtcod.console_set_default_background(console, libtcod.darker_yellow)
 	libtcod.console_rect(console, 0, 1, 21, 1, True, libtcod.BKGND_SET)
 	
-	time_str = campaign.today['day_start'].split(':')
-	hours = campaign_day.day_clock['hour'] - int(time_str[0])
-	minutes = campaign_day.day_clock['minute'] - int(time_str[1])
+	hours = campaign_day.day_clock['hour'] - int(campaign.today['start_hour'])
+	minutes = campaign_day.day_clock['minute'] - int(campaign.today['start_minute'])
 	if minutes < 0:
 		hours -= 1
 		minutes += 60
